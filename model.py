@@ -169,3 +169,48 @@ class MixtureOfExperts(nn.Module):
         output = torch.sum(expert_outputs * gating_weights, dim=1)  # (batch_size)
 
         return output
+
+
+import torch
+import torch.nn as nn
+import math
+from mamba_ssm import Mamba
+
+
+class MambaNet(nn.Module):
+    def __init__(self, input_size):
+        super(MambaNet, self).__init__()
+
+        self.mamba = Mamba(
+            # This module uses roughly 3 * expand * d_model^2 parameters
+            d_model=input_size,  # Model dimension d_model
+            d_state=128,  # SSM state expansion factor
+            d_conv=2,  # Local convolution width
+            expand=2,  # Block expansion factor
+        )
+
+        self.fc1 = nn.Linear(input_size, 256)
+        self.dropout1 = nn.Dropout(0.2)
+        # self.fc2 = nn.Linear(256, 256)
+        # self.dropout2 = nn.Dropout(0.2)
+        # self.fc3 = nn.Linear(256, 256)
+        # self.dropout3 = nn.Dropout(0.2)
+        # self.fc4 = nn.Linear(256, 256)
+        # self.dropout4 = nn.Dropout(0.2)
+        self.fc5 = nn.Linear(256, 1)
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.mamba(x.unsqueeze(1)).squeeze(1)
+        x = self.leaky_relu(self.fc1(x))
+        x = self.dropout1(x)
+        # x = self.leaky_relu(self.fc2(x))
+        # x = self.dropout2(x)
+        # x = self.leaky_relu(self.fc3(x))
+        # x = self.dropout3(x)
+        # x = self.leaky_relu(self.fc4(x))
+        # x = self.dropout4(x)
+        x = self.fc5(x)
+        x = self.sigmoid(x)
+        return x
