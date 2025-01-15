@@ -54,8 +54,8 @@ loaded_detector_model.eval()
 print("Models loaded successfully.")
 
 # Define training parameters
-num_episodes = 200
-num_gen_data = 50
+num_episodes = 500
+num_gen_data = 20
 batch_size = 128
 new_detector = TransformerDetector(input_size=input_dim).to(device)
 optimizer_cvae = Adam(loaded_beta_cvae.parameters(), lr=1e-3)
@@ -133,7 +133,7 @@ for ep in range(num_episodes):
             alpha=1.0,
             lambda_div=0.1,
             lr=0.01,
-            steps=50,
+            steps=20,
             log_file=adversarial_log,
         )
         new_samples.append(x_adv.unsqueeze(0))
