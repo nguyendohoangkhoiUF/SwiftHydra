@@ -10,7 +10,7 @@ from utils import *
 from model import *
 
 # Specify dataset path and device configuration
-dataset_path = r"Classical/7_Cardiotocography.npz"
+dataset_path = r"ADBench_datasets/7_Cardiotocography.npz"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Define paths for saving Beta-CVAE and Transformer Detector models
@@ -133,7 +133,7 @@ for ep in range(num_episodes):
             alpha=1.0,
             lambda_div=0.1,
             lr=0.01,
-            steps=20,
+            steps=50,
             log_file=adversarial_log,
         )
         new_samples.append(x_adv.unsqueeze(0))

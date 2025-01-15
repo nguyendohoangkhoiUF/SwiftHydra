@@ -9,7 +9,7 @@ from utils import *
 from model import *
 
 # Specify dataset path and device configuration
-dataset_path = r"Classical/7_Cardiotocography.npz"
+dataset_path = r"ADBench_datasets/7_Cardiotocography.npz"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Step 4.1: Load and preprocess data
