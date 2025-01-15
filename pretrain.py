@@ -89,7 +89,7 @@ print("Class distribution in training set:", dict(zip(unique, counts)))
 
 # Initialize Transformer Detector model
 model = TransformerDetector(input_size=input_dim).to(device)
-optimizer_tf = Adam(model.parameters(), lr=0.01)
+optimizer_tf = Adam(model.parameters(), lr=1e-3)
 criterion = nn.BCELoss()
 
 # Train the Transformer Detector model
