@@ -22,3 +22,8 @@ advancing anomaly detection.
 - ADBenchDatsets contain a collection of datasets used to benchmark the model.
 - In order to run a specific dataset, the path to it needs to be added into the dataloader for pretrain.py and then run that file to pretrain the Beta C-VAE and the detector.
 - Then specify the path to the dataset in SwiftHydra.py and run it to see the accuracy based on the AUC-ROC metric for anomaly detection.
+
+# Preliminary Imaging Results
+Mapping generated synthetic anomalous points over the test/train sets gives us an idea that the generated points are close enough to those that can be possibly tested on the test set. For example referencing this plot of synthetic/real points for the yeast.npz dataset from ADBench:
+![image](https://github.com/user-attachments/assets/6c1cf77d-7a7d-4b27-8ff5-6939979fccde)
+This shows that the generated datapoints using the C-VAE are diverse enough to provide high accuracy and plot an intrinsic decision boundary.
