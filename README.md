@@ -27,3 +27,10 @@ advancing anomaly detection.
 Mapping generated synthetic anomalous points over the test/train sets gives us an idea that the generated points are close enough to those that can be possibly tested on the test set. For example referencing this plot of synthetic/real points for the yeast.npz dataset from ADBench:
 ![image](https://github.com/user-attachments/assets/6c1cf77d-7a7d-4b27-8ff5-6939979fccde)
 This shows that the generated datapoints using the C-VAE are diverse enough to provide high accuracy and plot an intrinsic decision boundary.
+
+Corresponding AUC-ROC metric results:
+![image](https://github.com/user-attachments/assets/d4a211ed-956b-4060-a61d-fceed042e462)
+
+# Comparison with other anomaly detection methods
+ON DIFFUSION MODELING FOR ANOMALY DETECTION (https://openreview.net/pdf?id=lR3rk7ysXz) lists several anomaly detection models tested with the AUC-ROC metric. Swift Hydra manages to consistently outperform them. For eg. for the yeast dataset, the state of the art model can get an accuracy of 50.4 (CBLOF) compared to 74.26 (Swift Hydra)
+
