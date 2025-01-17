@@ -182,7 +182,8 @@ scaler = StandardScaler()
 X_plot_scaled = scaler.fit_transform(X_plot)
 
 # 3) Tính UMAP
-reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
+reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, n_jobs=-1)
+
 X_embedded = reducer.fit_transform(X_plot_scaled)
 # X_embedded.shape = (N_train + N_test + N_synthetic, 2)
 
