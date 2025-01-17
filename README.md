@@ -29,7 +29,8 @@ Mapping generated synthetic anomalous points over the test/train sets gives us a
 This shows that the generated datapoints using the C-VAE are diverse enough to provide high accuracy and plot an intrinsic decision boundary.
 
 Corresponding AUC-ROC metric results:
-![image](https://github.com/user-attachments/assets/d4a211ed-956b-4060-a61d-fceed042e462)
+![image](https://github.com/user-attachments/assets/7906615c-5e33-4006-883d-41fd48922914)
+
 
 # Comparison with other anomaly detection methods
 ON DIFFUSION MODELING FOR ANOMALY DETECTION (https://openreview.net/pdf?id=lR3rk7ysXz) lists several anomaly detection models tested with the AUC-ROC metric. Swift Hydra manages to consistently outperform them. For eg. for the yeast dataset, the state of the art model can get an accuracy of 50.4 (CBLOF) compared to 74.26 (Swift Hydra)
