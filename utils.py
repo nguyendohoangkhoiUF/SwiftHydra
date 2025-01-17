@@ -143,6 +143,24 @@ def train_detector(model, train_loader, optimizer, criterion, device):
         total_loss += loss.item()
     return total_loss / len(train_loader)
 
+
+# Để tái lập trình ngẫu nhiên cho ví dụ
+torch.manual_seed(0)
+np.random.seed(0)
+
+# Giả sử ta có một hàm tính reward liên quan đến "độ đa dạng" (diversity)
+# Ở đây, tạm thời ta giả lập bằng cách random ra reward để minh hoạ.
+def compute_diversity_reward(modified_z):
+    # Tùy chỉnh cách tính reward thực tế.
+    # Ở đây minh hoạ: reward tỉ lệ với độ lớn L2 norm của z (giả sử).
+    return torch.norm(modified_z, p=2, dim=-1, keepdim=True)
+
+# Hàm tiện ích chuyển numpy -> torch
+def to_tensor(x, device="cpu", dtype=torch.float32):
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x)
+    return x.to(device=device, dtype=dtype)
+
 def One_Step_To_Feasible_Action(
         beta_cvae,
         detector,

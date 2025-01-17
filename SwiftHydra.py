@@ -8,6 +8,7 @@ import random
 from sklearn.preprocessing import StandardScaler
 from utils import *
 from model import *
+import umap
 
 # Ví dụ đường dẫn
 dataset_path = r"ADBench_datasets/7_Cardiotocography.npz"
@@ -152,20 +153,13 @@ for ep in range(num_episodes):
 
 plt.style.use('default')  # Đảm bảo sử dụng style mặc định
 
-# Giả sử bạn đã có:
-# - D_train, y_train: Dữ liệu train và nhãn
-# - D_test, y_test: Dữ liệu test và nhãn
-# - X_synthetic: Dữ liệu synthetic
 D_train = torch.tensor(D_train_np, dtype=torch.float32)
 y_train = torch.tensor(y_train_np, dtype=torch.float32)
 D_test  = torch.tensor(D_test_np,  dtype=torch.float32)
 y_test  = torch.tensor(y_test_np,  dtype=torch.float32)
 
 X_synthetic = np.asarray(synthetic_data)
-
-
 X_synthetic = torch.tensor(X_synthetic,  dtype=torch.float32)
-
 
 # 1) Gộp dữ liệu
 X_plot = torch.cat([D_train, D_test, X_synthetic], dim=0).numpy()
@@ -187,9 +181,9 @@ y_plot = np.concatenate([
 scaler = StandardScaler()
 X_plot_scaled = scaler.fit_transform(X_plot)
 
-# 3) Tính T-SNE
-tsne = TSNE(n_components=2, perplexity=50, random_state=42)
-X_embedded = tsne.fit_transform(X_plot_scaled)
+# 3) Tính UMAP
+reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
+X_embedded = reducer.fit_transform(X_plot_scaled)
 # X_embedded.shape = (N_train + N_test + N_synthetic, 2)
 
 # 4) Vẽ
@@ -223,10 +217,9 @@ plt.scatter(X_embedded[N_train + N_test:][idx_syn, 0],
             X_embedded[N_train + N_test:][idx_syn, 1],
             c='green', alpha=0.6, label='Synthetic')
 
-plt.title("T-SNE Visualization: Train, Test, and Synthetic Data")
+plt.title("UMAP Visualization: Train, Test, and Synthetic Data")
 plt.legend()
 plt.show()
-
 
 
 #______________________________________________________
