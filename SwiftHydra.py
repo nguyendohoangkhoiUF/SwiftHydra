@@ -9,9 +9,25 @@ from sklearn.preprocessing import StandardScaler
 from utils import *
 from model import *
 import umap
+import torch.autograd as autograd
+
+
+def compute_gradient_penalty(D, real_samples, fake_samples, labels):
+    """Calculates the gradient penalty loss for WGAN GP."""
+    alpha = Tensor(np.random.random((real_samples.size(0), 1)))
+    interpolates = (alpha * real_samples + (1 - alpha) * fake_samples).requires_grad_(True)
+    d_interpolates = D(interpolates, labels)
+    fake = Tensor(real_samples.shape[0], 1).fill_(1.0)
+    gradients = autograd.grad(outputs=d_interpolates, inputs=interpolates,
+                              grad_outputs=fake, create_graph=True, retain_graph=True, only_inputs=True)[0]
+    gradients = gradients.view(gradients.size(0), -1)
+    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+    return gradient_penalty
+
+
 
 # Ví dụ đường dẫn
-dataset_path = r"ADBench_datasets/7_Cardiotocography.npz"
+dataset_path = r"ADBench_datasets/47_yeast.npz"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Lưu Beta-CVAE
 # Đảm bảo thư mục lưu trữ tồn tại
@@ -39,17 +55,26 @@ y_test  = torch.tensor(y_test_np,  dtype=torch.float32)
 train_dataset = TensorDataset(D_train, y_train)
 train_loader  = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
-# Khởi tạo mô hình cùng cấu hình ban đầu
-loaded_beta_cvae = BetaCVAE(input_dim=input_dim, hidden_dim=512, latent_dim=64, beta=1.0).to(device)
+cuda = True if torch.cuda.is_available() else False
+Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
+
+# Generator Discriminator
+loaded_generator = Generator(latent_dim=64, n_classes=1, output_dim=input_dim).to(device)
+loaded_discriminator = Discriminator(input_dim=input_dim, n_classes=1).to(device)
 loaded_detector_model = TransformerDetector(input_size=input_dim).to(device)
 
 # Load trạng thái mô hình đã lưu
 # Chỉ load trọng số
-loaded_beta_cvae.load_state_dict(torch.load(vae_path, weights_only=True))
+gen_path = os.path.join(save_dir, "gen.pth")
+disc_path = os.path.join(save_dir, "disc.pth")
+loaded_generator.load_state_dict(torch.load(gen_path, weights_only=True))
+loaded_discriminator.load_state_dict(torch.load(disc_path, weights_only=True))
 loaded_detector_model.load_state_dict(torch.load(detector_path, weights_only=True))
 
 # Đặt mô hình về chế độ eval (nếu chỉ sử dụng inference)
-loaded_beta_cvae.eval()
+loaded_discriminator.eval()
+loaded_generator.eval()
 loaded_detector_model.eval()
 
 print("Models loaded successfully.")
@@ -59,13 +84,15 @@ num_episodes = 100
 num_gen_data = 50
 batch_size = 128
 new_detector = TransformerDetector(input_size=input_dim).to(device)
-optimizer_cvae = Adam(loaded_beta_cvae.parameters(), lr=1e-4)
+optimizer_G = torch.optim.Adam(loaded_generator.parameters(), lr=2e-4, betas=(0, 0.9))
+optimizer_D = torch.optim.Adam(loaded_discriminator.parameters(), lr=2e-4, betas=(0, 0.9))
 optimizer_detector = Adam(new_detector.parameters(), lr=1e-4)
 criterion = nn.BCELoss()
 # File log
 log_dir = "./logs"
 os.makedirs(log_dir, exist_ok=True)
-beta_cvae_log = os.path.join(log_dir, "beta_cvae.log")
+generator_log = os.path.join(log_dir, "gen.log")
+discriminator_log = os.path.join(log_dir, "dis.log")
 detector_log = os.path.join(log_dir, "detector.log")
 adversarial_log = os.path.join(log_dir, "adversarial_samples.log")
 synthetic_data = []
@@ -95,9 +122,41 @@ for ep in range(num_episodes):
     train_dataset = TensorDataset(D_train, y_train)
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
     num_epochs_cvae = 10
-    for epoch in range(num_epochs_cvae):
-        loss_cvae = train_beta_cvae(loaded_beta_cvae, train_loader, optimizer_cvae, device)
-        log_to_file(beta_cvae_log, f"Epoch {epoch + 1}/{num_epochs_cvae}, Loss: {loss_cvae:.4f}")
+    batches_done = 0
+    for epoch in range(10):
+        for i, (data, labels) in enumerate(train_loader):
+            batch_size = data.shape[0]
+            real_data = data.view(batch_size, -1).type(Tensor)
+            labels = labels.type(LongTensor)
+
+            # Train Discriminator
+            optimizer_D.zero_grad()
+            z = Tensor(np.random.normal(0, 1, (batch_size, 64)))
+            
+            fake_data = loaded_generator(z, labels)
+            real_validity = loaded_discriminator(real_data, labels)
+            fake_validity = loaded_discriminator(fake_data, labels)
+            gradient_penalty = compute_gradient_penalty(loaded_discriminator, real_data.data, fake_data.data, labels.data)
+            
+            d_loss = -torch.mean(real_validity) + torch.mean(fake_validity) + 10 * gradient_penalty
+            d_loss.backward()
+            optimizer_D.step()
+
+            # Train Generator every n_critic steps
+            if i % 5 == 0:
+                optimizer_G.zero_grad()
+                fake_data = loaded_generator(z, labels)
+                fake_validity = loaded_discriminator(fake_data, labels)
+                g_loss = -torch.mean(fake_validity)
+                g_loss.backward()
+                optimizer_G.step()
+
+                print(f"[Epoch {epoch}/{150}] [Batch {i}/{len(train_loader)}] [D loss: {d_loss.item()}] [G loss: {g_loss.item()}]")
+
+                
+                batches_done += 5
+
+        log_to_file(discriminator_log, f"Epoch {epoch + 1}/{150}, Loss: {d_loss:.4f}")
 
     detector_epochs = 5
     train_dataset_detector = TensorDataset(D_train, y_train)
@@ -106,6 +165,7 @@ for ep in range(num_episodes):
         detector_loss = train_detector(new_detector, train_loader_detector, optimizer_detector, criterion, device)
         # Giả sử y_train có dạng 0/1
     # print(f"===== Evaluate in Testing set =====")
+    
     # evaluate_with_classification_report_and_auc(model, test_loader, device, threshold=0.5)
     # Generate Adversarial Samples
     idx_class1 = (y_train == 1).nonzero(as_tuple=True)[0]
@@ -127,7 +187,8 @@ for ep in range(num_episodes):
         random_idx = random.choice(idx_class1)
         x_orig = D_train[random_idx]
         x_adv = One_Step_To_Feasible_Action(
-            beta_cvae=loaded_beta_cvae,
+            generator=loaded_generator,
+            discriminator=loaded_discriminator,
             detector=loaded_detector_model,
             x_orig=x_orig,
             device=device,
@@ -220,10 +281,8 @@ plt.scatter(X_embedded[N_train + N_test:][idx_syn, 0],
 
 plt.title("UMAP Visualization: Train, Test, and Synthetic Data")
 plt.legend()
-plt.show()
+plt.show() 
 
-
-#______________________________________________________
   # 4.4: Train mô hình TransformerDetector
 train_dataset_final = TensorDataset(D_train, y_train)
 test_dataset = TensorDataset(D_test, y_test)
@@ -238,11 +297,14 @@ model = TransformerDetector(input_size=input_dim).to(device)
 optimizer_tf = Adam(model.parameters(), lr=1e-3)
 criterion = nn.BCELoss()
 num_epochs_tf = 100
+score_total=0
 for epoch in range(num_epochs_tf):
     train_loss = train_detector(model, train_loader_final, optimizer_tf, criterion, device)
     print(f"[Transformer] Epoch {epoch + 1}/{num_epochs_tf}, Loss={train_loss:.4f}")
 
     # Đánh giá
     print("Test set evaluation:")
-    evaluate_with_classification_report_and_auc(model, test_loader, device, threshold=0.3)
+    r, score = evaluate_with_classification_report_and_auc(model, test_loader, device, threshold=0.3)
     print("-" * 40)
+    score_total+=score
+print("Final score: " ,score_total/100)
