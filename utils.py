@@ -1,7 +1,10 @@
 import torch
 import torch.nn.functional as F
+import torch.optim as optim
 from sklearn.metrics import classification_report, roc_auc_score
 import numpy as np
+from model import * 
+import torch.autograd as autograd
 
 # =========================
 # 1. Load & Utility Functions
@@ -85,6 +88,68 @@ def beta_cvae_loss_fn(x, x_recon, mean, logvar, beta=4.0):
     kl_loss = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
     return recon_loss + beta * kl_loss
 
+def compute_gradient_penalty(D, real_samples, fake_samples, labels):
+    """Calculates the gradient penalty loss for WGAN GP."""
+    cuda = True if torch.cuda.is_available() else False
+
+    Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+    LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
+    alpha = Tensor(np.random.random((real_samples.size(0), 1)))
+    interpolates = (alpha * real_samples + (1 - alpha) * fake_samples).requires_grad_(True)
+    d_interpolates = D(interpolates, labels)
+    fake = Tensor(real_samples.shape[0], 1).fill_(1.0)
+    gradients = autograd.grad(outputs=d_interpolates, inputs=interpolates,
+                              grad_outputs=fake, create_graph=True, retain_graph=True, only_inputs=True)[0]
+    gradients = gradients.view(gradients.size(0), -1)
+    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+    return gradient_penalty
+
+
+def train_conditional_wasserstein_gan(generator, discriminator, data_loader, optimizer_D, optimizer_G, device):
+    batch_size = 64
+    latent_dim = 64
+    n_critic = 5
+    lambda_gp = 10
+
+    cuda = True if torch.cuda.is_available() else False
+
+    Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+    LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
+    discriminator.train()
+    generator.train()
+    total_loss = 0
+    for i, (data, labels) in enumerate(data_loader):
+        batch_size = data.shape[0]
+        real_data = data.view(batch_size, -1).type(Tensor)
+        labels = labels.type(LongTensor)
+
+        # Train Discriminator
+        optimizer_D.zero_grad()
+        z = Tensor(np.random.normal(0, 1, (batch_size, latent_dim)))
+        
+        fake_data = generator(z, labels)
+        real_validity = discriminator(real_data, labels)
+        fake_validity = discriminator(fake_data, labels)
+        gradient_penalty = compute_gradient_penalty(discriminator, real_data.data, fake_data.data, labels.data)
+        
+        d_loss = -torch.mean(real_validity) + torch.mean(fake_validity) + lambda_gp * gradient_penalty
+        d_loss.backward()
+        total_loss+=d_loss
+        optimizer_D.step()
+
+        # Train Generator every n_critic steps
+        if i % n_critic == 0:
+            optimizer_G.zero_grad()
+            fake_data = generator(z, labels)
+            fake_validity = discriminator(fake_data, labels)
+            g_loss = -torch.mean(fake_validity)
+            g_loss.backward()
+            optimizer_G.step()
+     
+           
+    return total_loss / len(data_loader)
+
+
 def train_beta_cvae(model, data_loader, optimizer, device):
     """
     Train Beta-CVAE model for one epoch.
@@ -162,7 +227,8 @@ def to_tensor(x, device="cpu", dtype=torch.float32):
     return x.to(device=device, dtype=dtype)
 
 def One_Step_To_Feasible_Action(
-        beta_cvae,
+        generator,
+        discriminator,
         detector,
         x_orig,
         device,
@@ -189,7 +255,8 @@ def One_Step_To_Feasible_Action(
     Returns:
         Adversarial sample (torch.Tensor).
     """
-    beta_cvae.eval()
+    generator.eval()
+    discriminator.eval()
     detector.eval()
 
     if previously_generated is None:
@@ -200,16 +267,16 @@ def One_Step_To_Feasible_Action(
 
     # Encode input data into latent space
     with torch.no_grad():
-        mean, logvar = beta_cvae.encode(x_orig, y_class1)
-        z = beta_cvae.reparameterize(mean, logvar).detach().clone()
+       z_uniform = (torch.rand(1, 64) * 4.0) - 2.0
+       z_uniform = z_uniform.to(device)
 
     # Optimize latent space representation
-    optimizer_z = torch.optim.Adam([z], lr=lr)
+    optimizer_z = torch.optim.Adam([z_uniform], lr=lr)
     for step in range(steps):
         optimizer_z.zero_grad()
 
         # Decode latent variable back to data space
-        x_synthetic = beta_cvae.decode(z, y_class1)
+        x_synthetic = generator(z_uniform, y_class1)
 
         # Calculate detector prediction
         prob_class1 = detector(x_synthetic)
@@ -233,5 +300,5 @@ def One_Step_To_Feasible_Action(
 
     # Decode optimized latent variable back to data space
     with torch.no_grad():
-        x_adv = beta_cvae.decode(z, y_class1).detach().cpu().squeeze(0)
+        x_adv = generator(z_uniform, y_class1).detach().cpu().squeeze(0)
     return x_adv
