@@ -6,62 +6,54 @@ from torch.optim import Adam
 from utils import *
 
 # =========================
-# 2. Beta-CVAE
+# 2. Conditional Wasserstein GAN    
 # =========================
-class BetaCVAE(nn.Module):
-    """
-    Beta Conditional Variational Autoencoder (Beta-CVAE) for binary tasks:
-      - Encoder processes (x, y).
-      - Decoder processes (z, y).
-      - Beta > 1 emphasizes the KL divergence to encourage a more spread-out latent space.
-    """
 
-    def __init__(self, input_dim, hidden_dim=128, latent_dim=64, beta=4.0):
-        super(BetaCVAE, self).__init__()
-        self.input_dim = input_dim
-        self.latent_dim = latent_dim
-        self.beta = beta  # Scaling factor for KL divergence
+class Generator(nn.Module):
+    def __init__(self, latent_dim, n_classes, output_dim):
+        super(Generator, self).__init__()
+        
 
-        # Encoder layers
-        self.fc1 = nn.Linear(input_dim + 1, hidden_dim)  # Concatenate y -> +1
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)  # Additional hidden layer
-        self.fc3_mean = nn.Linear(hidden_dim, latent_dim)
-        self.fc3_logvar = nn.Linear(hidden_dim, latent_dim)
+        def block(in_feat, out_feat, normalize=True):
+            layers = [nn.Linear(in_feat, out_feat)]
+            if normalize:
+                layers.append(nn.BatchNorm1d(out_feat, 0.8))
+            layers.append(nn.LeakyReLU(0.2, inplace=True))
+            return layers
 
-        # Decoder layers
-        self.fc4 = nn.Linear(latent_dim + 1, hidden_dim)  # Concatenate y -> +1
-        self.fc5 = nn.Linear(hidden_dim, hidden_dim)  # Additional hidden layer
-        self.fc6 = nn.Linear(hidden_dim, input_dim)
+        self.model = nn.Sequential(
+            *block(latent_dim + n_classes, 128, normalize=False),
+            *block(128, 256),
+            *block(256, 512),
+            *block(512, 1024),
+            nn.Linear(1024, output_dim),
+            nn.Tanh()
+        )
 
-    def encode(self, x, y):
-        """Encode input (x, y) into latent space with mean and log variance."""
-        xy = torch.cat([x, y], dim=1)  # Concatenate features and label (B, input_dim+1)
-        h = F.relu(self.fc1(xy))
-        h = F.relu(self.fc2(h))  # Additional hidden layer
-        mean = self.fc3_mean(h)
-        logvar = self.fc3_logvar(h)
-        return mean, logvar
+    def forward(self, z, labels):
+        gen_input = torch.cat((z, labels.view(labels.shape[0],1)), dim=1)
+        output = self.model(gen_input)
+        
+        return output
 
-    def reparameterize(self, mean, logvar):
-        """Sample from latent space using reparameterization trick."""
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mean + eps * std
+class Discriminator(nn.Module):
+    def __init__(self, input_dim, n_classes):
+        super(Discriminator, self).__init__()
+        
 
-    def decode(self, z, y):
-        """Decode latent representation (z, y) back to input space."""
-        zy = torch.cat([z, y], dim=1)  # Concatenate latent vector and label (B, latent_dim+1)
-        h = F.relu(self.fc4(zy))
-        h = F.relu(self.fc5(h))  # Additional hidden layer
-        x_recon = self.fc6(h)
-        return x_recon
+        self.model = nn.Sequential(
+            nn.Linear(n_classes + input_dim, 512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(512, 512),
+            nn.Dropout(0.4),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(512, 1),
+        )
 
-    def forward(self, x, y):
-        """Forward pass through the Beta-CVAE."""
-        mean, logvar = self.encode(x, y)
-        z = self.reparameterize(mean, logvar)
-        x_recon = self.decode(z, y)
-        return x_recon, mean, logvar
+    def forward(self, data, labels):
+        d_in = torch.cat((data, labels.view(labels.shape[0],1)), dim=1)
+        validity = self.model(d_in)
+        return validity
 
 
 # =========================
