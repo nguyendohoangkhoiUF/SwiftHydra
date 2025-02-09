@@ -5,17 +5,15 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import torch.autograd as autograd
 from utils import *
 from model import *
 
-
 # Specify dataset path and device configuration
-dataset_path = r"ADBench_datasets/47_yeast.npz"
+dataset_path = r"data4.csv"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Step 4.1: Load and preprocess data
-X_all, y_all = load_adbench_data(dataset_path)
+X_all, y_all = load_csv_to_tensors(dataset_path) # new preprocessing
 input_dim = X_all.shape[1]
 
 # Standardize features using StandardScaler
@@ -31,82 +29,25 @@ y_train = torch.tensor(y_train_np, dtype=torch.float32)
 D_test  = torch.tensor(D_test_np,  dtype=torch.float32)
 y_test  = torch.tensor(y_test_np,  dtype=torch.float32)
 
+# Create DataLoader for training Beta-CVAE
 train_dataset = TensorDataset(D_train, y_train)
-dataloader  = DataLoader(train_dataset, batch_size=64, shuffle=True)
+train_loader  = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
-## Training WGAN
-n_epochs = 150
-batch_size = 64
-lr = 0.0002
-b1 = 0
-b2 = 0.9
-latent_dim = 64
-input_dim = D_test.shape[1]  # Can be changed for different datasets
-n_classes = 1
-n_critic = 5
-sample_interval = 400
-dataset_name = "mnist"
-lambda_gp = 10
+# Step 4.2: Initialize Beta-CVAE model
+# Increase beta (e.g., beta=4.0) to emphasize KL divergence, encouraging more diverse latent space
+beta_cvae = BetaCVAE(input_dim=input_dim, hidden_dim=512, latent_dim=64, beta=1.0).to(device)
 
-cuda = True if torch.cuda.is_available() else False
+# Train Beta-CVAE model
+optimizer_cvae = Adam(beta_cvae.parameters(), lr=1e-4)
+num_epochs_cvae = 150
+for epoch in range(num_epochs_cvae):
+    loss_cvae = train_beta_cvae(beta_cvae, train_loader, optimizer_cvae, device)
+    if (epoch + 1) % 2 == 0:
+        print(f"[Beta-CVAE] Epoch {epoch+1}/{num_epochs_cvae}, loss={loss_cvae:.2f}")
 
-print(D_train.shape)
-generator = Generator(latent_dim=latent_dim, n_classes= 1, output_dim=input_dim)
-discriminator = Discriminator(input_dim, n_classes=1)
-# Optimizers
-optimizer_G = torch.optim.Adam(generator.parameters(), lr=lr, betas=(b1, b2))
-optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=lr, betas=(b1, b2))
-
-Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
-
-def compute_gradient_penalty(D, real_samples, fake_samples, labels):
-    """Calculates the gradient penalty loss for WGAN GP."""
-    alpha = Tensor(np.random.random((real_samples.size(0), 1)))
-    interpolates = (alpha * real_samples + (1 - alpha) * fake_samples).requires_grad_(True)
-    d_interpolates = D(interpolates, labels)
-    fake = Tensor(real_samples.shape[0], 1).fill_(1.0)
-    gradients = autograd.grad(outputs=d_interpolates, inputs=interpolates,
-                              grad_outputs=fake, create_graph=True, retain_graph=True, only_inputs=True)[0]
-    gradients = gradients.view(gradients.size(0), -1)
-    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
-    return gradient_penalty
-
-
-# Training loop 
-batches_done = 0
-for epoch in range(150):
-    for i, (data, labels) in enumerate(dataloader):
-        batch_size = data.shape[0]
-        real_data = data.view(batch_size, -1).type(Tensor)
-        labels = labels.type(LongTensor)
-
-        # Train Discriminator
-        optimizer_D.zero_grad()
-        z = Tensor(np.random.normal(0, 1, (batch_size, latent_dim)))
-        
-        fake_data = generator(z, labels)
-        real_validity = discriminator(real_data, labels)
-        fake_validity = discriminator(fake_data, labels)
-        gradient_penalty = compute_gradient_penalty(discriminator, real_data.data, fake_data.data, labels.data)
-        
-        d_loss = -torch.mean(real_validity) + torch.mean(fake_validity) + lambda_gp * gradient_penalty # WASSERSTEIN DISTANCE
-        d_loss.backward()
-        optimizer_D.step()
-
-        # Train Generator every n_critic steps
-        if i % n_critic == 0:
-            optimizer_G.zero_grad()
-            fake_data = generator(z, labels)
-            fake_validity = discriminator(fake_data, labels)
-            g_loss = -torch.mean(fake_validity)
-            g_loss.backward()
-            optimizer_G.step()
-
-            print(f"[Epoch {epoch}/{n_epochs}] [Batch {i}/{len(dataloader)}] [D loss: {d_loss.item()}] [G loss: {g_loss.item()}]")
-
-            
-            batches_done += n_critic
+# Step 4.3: Generate synthetic data to maximize diversity
+# Instead of sampling z ~ Normal(0,1), use z ~ Uniform([-2,2]) to increase coverage and encourage diversity
+beta_cvae.eval()
 
 # Separate minority and majority classes
 minority_mask = (y_train == 1)
@@ -119,14 +60,14 @@ num_generate = len(X_majority) - len(X_minority)
 
 with torch.no_grad():
     # Generate latent variables uniformly within [-2,2]
-    z_uniform = (torch.rand(num_generate, latent_dim) * 4.0) - 2.0
+    z_uniform = (torch.rand(num_generate, beta_cvae.latent_dim) * 4.0) - 2.0
     z_uniform = z_uniform.to(device)
 
     # Assign synthetic labels (e.g., oversample minority class with y=1)
     y_synthetic_c = torch.full((num_generate, 1), 0.9, device=device)
 
     # Decode synthetic data
-    X_synthetic = generator(z_uniform, y_synthetic_c)
+    X_synthetic = beta_cvae.decode(z_uniform, y_synthetic_c)
     X_synthetic = X_synthetic.cpu()
 
 # Create labels for synthetic samples
@@ -142,7 +83,7 @@ test_dataset = TensorDataset(D_test, y_test)
 train_loader_final = DataLoader(train_dataset_final, batch_size=64, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=64)
 
-print("After oversampling with Generator:")
+print("After oversampling with Beta-CVAE:")
 unique, counts = np.unique(y_train_final.numpy(), return_counts=True)
 print("Class distribution in training set:", dict(zip(unique, counts)))
 
@@ -163,15 +104,11 @@ save_dir = "./saved_models"
 os.makedirs(save_dir, exist_ok=True)
 
 # Save the trained Beta-CVAE model
-gen_path = os.path.join(save_dir, "gen.pth")
-disc_path = os.path.join(save_dir, "disc.pth")
-torch.save(generator.state_dict(), gen_path)
-print(f"Generator model saved to: {gen_path}")
-
-torch.save(discriminator.state_dict(), disc_path)
-print(f"Critic model saved to: {disc_path}")
+vae_path = os.path.join(save_dir, "beta_cvae.pth")
+torch.save(beta_cvae.state_dict(), vae_path)
+print(f"Beta-CVAE model saved to: {vae_path}")
 
 # Save the trained TransformerDetector model
 detector_path = os.path.join(save_dir, "transformer_detector.pth")
 torch.save(model.state_dict(), detector_path)
-print(f"TransformerDetector model saved to: {detector_path}")    
+print(f"TransformerDetector model saved to: {detector_path}")
