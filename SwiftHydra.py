@@ -235,7 +235,7 @@ print("Phân phối lớp trong tập train:", dict(zip(unique, counts)))
 model = TransformerDetector(input_size=input_dim).to(device)
 optimizer_tf = Adam(model.parameters(), lr=1e-3)
 criterion = nn.BCELoss()
-num_epochs_tf = 1000
+num_epochs_tf = 200
 score_total=0
 for epoch in range(num_epochs_tf):
     train_loss = train_detector(model, train_loader_final, optimizer_tf, criterion, device)
