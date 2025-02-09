@@ -10,6 +10,59 @@ import torch.autograd as autograd
 # 1. Load & Utility Functions
 # =========================
 
+
+def load_csv_to_tensors(file_path):
+    """
+    Load a CSV file into PyTorch tensors with preprocessing.
+
+    Returns:
+    - X (torch.Tensor): Processed feature matrix as a float32 tensor.
+    - y (torch.Tensor): Labels as a float32 tensor, where 'Natural' is mapped to 0, and others to 1.
+    """
+    # Load dataset
+    df = pd.read_csv(file_path)
+    
+    # Ensure 'marker' column exists
+    if 'marker' not in df.columns:
+        raise ValueError("Dataset must contain a 'marker' column for labels.")
+    
+    # Features to drop since they are just logs with no effect on the measured data
+    features_to_drop = [
+        "R4-PA9:VH", "R2-PA9:VH", "snort_log1", "snort_log3",
+        "control_panel_log3", "control_panel_log2", "control_panel_log1",
+        "control_panel_log4", "snort_log2", "snort_log4"
+    ]
+    print(df.shape)
+    # Drop specified features (if they exist in the dataset)
+    df = df.drop(columns=[col for col in features_to_drop if col in df.columns])
+    print(df.shape)
+    # Extract features (X) and labels (y)
+    X = df.drop(columns=['marker'])
+    y = df['marker'].apply(lambda val: 1 if val == "Natural" else 0).values.astype(np.float32)
+    # 1. **Remove Constant Columns (All same values)**
+    X = X.loc[:, (X.nunique() > 1)]
+    # 2. **Remove Duplicate Columns**
+    X = X.T.drop_duplicates().T
+    # Convert to NumPy array
+    X = X.values.astype(np.float32)
+
+    # 4. **Handle infinite values**
+    max_finite_values = np.nanmax(np.where(np.isfinite(X), X, np.nan), axis=0)
+    for col in range(X.shape[1]):
+        X[:, col] = np.where(np.isfinite(X[:, col]), X[:, col], max_finite_values[col])
+
+    # 5. **Handle missing values (Replace NaNs with column mean)**
+    col_means = np.nanmean(X, axis=0)
+    for col in range(X.shape[1]):
+        X[:, col] = np.where(np.isnan(X[:, col]), col_means[col], X[:, col])
+
+    # Convert to PyTorch tensors
+    X_tensor = torch.tensor(X, dtype=torch.float32)
+    y_tensor = torch.tensor(y, dtype=torch.float32)
+
+    return X_tensor, y_tensor
+
+
 def load_adbench_data(dataset_path):
     """
     Load dataset from a .npz file.
