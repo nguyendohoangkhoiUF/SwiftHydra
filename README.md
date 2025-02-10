@@ -19,7 +19,7 @@ advancing anomaly detection.
 
 # Instructions
 - model.py contains the architecture of the model with the Mamba MoE and C-VAE.
-- ADBenchDatsets contain a collection of datasets used to benchmark the model.
+- ADBenchDatsets contain a collection of datasets used to benchmark the model (https://github.com/Minqi824/ADBench).
 - In order to run a specific dataset, the path to it needs to be added into the dataloader for pretrain.py and then run that file to pretrain the Beta C-VAE and the detector.
 - Then specify the path to the dataset in SwiftHydra.py and run it to see the accuracy based on the AUC-ROC metric for anomaly detection.
 
