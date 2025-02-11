@@ -1,4 +1,4 @@
-# Introduction 
+# Swift Hydra: Self-Reinforcing Generative Framework for Anomaly Detection with Multiple Mamba Models
 Despite a plethora of anomaly detection models developed over the years, their
 ability to generalize to unseen anomalies remains an issue, particularly in critical
 systems. This paper aims to address this challenge by introducing Swift Hydra, a
